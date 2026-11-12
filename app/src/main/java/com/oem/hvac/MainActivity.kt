@@ -20,12 +20,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oem.hvac.utils.CarHvacManager
 
+/**
+ * Main Activity for the HVAC Comfort Controller application on Android Automotive OS (AAOS).
+ *
+ * This activity initializes the [CarHvacManager] to bind to the vehicle's hardware property service,
+ * registers distraction optimization and UX restriction listeners, and hosts the Jetpack Compose
+ * UI for climate control.
+ */
 class MainActivity : ComponentActivity() {
 
     private lateinit var hvacManager: CarHvacManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Initialize HVAC manager and connect to AAOS Car Service
         hvacManager = CarHvacManager(this)
         hvacManager.connect()
 
@@ -38,10 +46,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Ensure VHAL callbacks and Car service connection are safely torn down
         hvacManager.disconnect()
     }
 }
 
+/**
+ * Main Jetpack Compose screen for the HVAC Comfort Controller.
+ * Displays driver and passenger climate zones, fan speed and airflow direction, primary and extended
+ * HVAC toggles, steering wheel heat, and driving safety restrictions.
+ *
+ * @param hvacManager Instance of [CarHvacManager] managing VHAL state and commands.
+ */
 @Composable
 fun HvacControlScreen(hvacManager: CarHvacManager) {
     // --- Existing State Collectors ---
@@ -74,7 +90,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
     val actualFanSpeedRpm by hvacManager.actualFanSpeedRpm.collectAsState()
     val isParked by hvacManager.isParked.collectAsState()
 
-    // Trigger recomposition when display unit changes
+    // Trigger memoized recomposition when temperature unit or raw temperature changes
     val driverTempLabel = remember(driverTemp, isFahrenheit) { hvacManager.formatTemperature(driverTemp) }
     val passengerTempLabel = remember(passengerTemp, isFahrenheit) { hvacManager.formatTemperature(passengerTemp) }
 
@@ -88,7 +104,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // =====================================================================
-        // NEW TOP BAR: Master HVAC Power, Gear Status, Unit Toggle & Refresh
+        // TOP BAR: Master HVAC Power, Gear Status, Unit Toggle & VHAL Sync
         // =====================================================================
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -99,6 +115,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Master HVAC Power Button (Red when OFF, Primary when ON)
                 Button(
                     onClick = { hvacManager.setHvacPowerOn(!isHvacPowerOn) },
                     modifier = Modifier.height(56.dp),
@@ -114,6 +131,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
                     )
                 }
 
+                // Vehicle Gear State Status Indicator (PARK vs DRIVE)
                 Text(
                     text = if (isParked) "Gear: PARKED" else "Gear: DRIVING",
                     fontSize = 18.sp,
@@ -123,6 +141,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Temperature Units Toggle (°C / °F)
                 OutlinedButton(
                     onClick = { hvacManager.setTemperatureDisplayUnits(!isFahrenheit) },
                     modifier = Modifier.height(56.dp)
@@ -130,6 +149,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
                     Text(text = if (isFahrenheit) "Unit: °F" else "Unit: °C", fontSize = 16.sp)
                 }
 
+                // Manual VHAL property state resync button
                 OutlinedButton(
                     onClick = { hvacManager.syncInitialState() },
                     modifier = Modifier.height(56.dp)
@@ -140,7 +160,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
         }
 
         // =====================================================================
-        // EXISTING ROW 1: Driver Zone, Blower & Vent Direction, Passenger Zone
+        // ROW 1: Driver Zone, Blower & Vent Direction, Passenger Zone
         // =====================================================================
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -203,7 +223,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
         }
 
         // =====================================================================
-        // EXISTING ROW 2: Primary Climate Toggles (A/C, AUTO, RECIRC, DEFROST, DUAL)
+        // ROW 2: Primary Climate Toggles (A/C, AUTO, RECIRC, DEFROST, DUAL)
         // =====================================================================
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -217,7 +237,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
         }
 
         // =====================================================================
-        // NEW ROW 2B: Extended Climate Toggles (Max A/C, Max Defrost, Rear Defrost, Auto Recirc, Mirror & Electric Defrost)
+        // ROW 2B: Extended Climate Toggles (Max A/C, Max Def, Rear Def, Auto Recirc, Mirror & Electric Defrost)
         // =====================================================================
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -244,7 +264,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
         }
 
         // =====================================================================
-        // NEW ROW 2C: Steering Wheel Heat Control
+        // ROW 2C: Steering Wheel Heat Control Card
         // =====================================================================
         Card(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -279,7 +299,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
         }
 
         // =====================================================================
-        // EXISTING ROW 3: Driving Restriction Banner
+        // ROW 3: Driving Safety & Distraction Restriction Banner
         // =====================================================================
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -301,7 +321,7 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
                     fontSize = 18.sp
                 )
                 Button(
-                    onClick = { /* Open gallery */ },
+                    onClick = { /* Open gallery or profile settings */ },
                     enabled = !isDriving && isParked,
                     modifier = Modifier.height(56.dp)
                 ) {
@@ -312,6 +332,10 @@ fun HvacControlScreen(hvacManager: CarHvacManager) {
     }
 }
 
+/**
+ * Composable card for individual climate zone controls (Driver or Passenger),
+ * including temperature adjustment, seat heating/cooling, and seat ventilation controls.
+ */
 @Composable
 private fun ZoneControlCard(
     title: String,
@@ -342,6 +366,7 @@ private fun ZoneControlCard(
             Text(text = title, fontSize = 20.sp, fontWeight = FontWeight.Medium)
             Text(text = formattedTemp, fontSize = 34.sp, fontWeight = FontWeight.Bold)
 
+            // Temperature adjustment buttons
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 FilledTonalButton(onClick = onTempDecrease, enabled = rawTemp > minTemp, modifier = Modifier.size(76.dp)) {
                     Text("-", fontSize = 28.sp)
@@ -353,6 +378,7 @@ private fun ZoneControlCard(
 
             HorizontalDivider()
 
+            // Seat Heating / Cooling status and buttons
             val seatText = when {
                 seatLevel > 0 -> "Seat Heat: +$seatLevel"
                 seatLevel < 0 -> "Seat Cool: $seatLevel"
@@ -368,7 +394,7 @@ private fun ZoneControlCard(
                 }
             }
 
-            // New: Seat Ventilation Controls
+            // Seat Ventilation Controls (if supported by vehicle hardware)
             if (showSeatVent || seatVentLevel > 0) {
                 HorizontalDivider()
                 Text(text = "Seat Vent: $seatVentLevel / $maxSeatVent", fontSize = 16.sp)
@@ -385,6 +411,9 @@ private fun ZoneControlCard(
     }
 }
 
+/**
+ * Composable card for blower fan speed control, actual RPM readout, and airflow vent direction selection.
+ */
 @Composable
 private fun FanAndAirflowCard(
     fanSpeed: Int,
@@ -406,7 +435,7 @@ private fun FanAndAirflowCard(
             Text(text = "Fan Speed", fontSize = 20.sp, fontWeight = FontWeight.Medium)
             Text(text = "$fanSpeed / $maxSpeed", fontSize = 34.sp, fontWeight = FontWeight.Bold)
 
-            // New: Actual Fan RPM readout
+            // Actual Blower Fan RPM readout (if supported)
             if (showRpm || actualRpm > 0) {
                 Text(
                     text = "Actual Blower: $actualRpm RPM",
@@ -415,6 +444,7 @@ private fun FanAndAirflowCard(
                 )
             }
 
+            // Fan speed increment / decrement buttons
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 FilledTonalButton(onClick = onDecrease, enabled = fanSpeed > minSpeed, modifier = Modifier.size(76.dp)) {
                     Text("-", fontSize = 28.sp)
@@ -427,6 +457,7 @@ private fun FanAndAirflowCard(
             HorizontalDivider()
 
             Text(text = "Airflow Vents", fontSize = 16.sp)
+            // Airflow Direction Filter Chips (Face, Floor, Both)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = fanDirection == VehicleHvacFanDirection.FACE,
@@ -448,6 +479,9 @@ private fun FanAndAirflowCard(
     }
 }
 
+/**
+ * Reusable toggle button component for primary and extended HVAC features (A/C, Auto, Recirc, Defrost, etc.).
+ */
 @Composable
 private fun ClimateToggleButton(
     label: String,

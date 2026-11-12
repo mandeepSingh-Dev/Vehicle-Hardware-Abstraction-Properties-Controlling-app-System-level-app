@@ -15,13 +15,22 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/**
+ * Manages HVAC (Heating, Ventilation, and Air Conditioning) operations, VHAL (Vehicle Hardware Abstraction Layer)
+ * property subscriptions, hardware capability bounds, and driving safety restrictions for Android Automotive OS (AAOS).
+ *
+ * This class interfaces directly with [CarPropertyManager] and [CarUxRestrictionsManager] to provide
+ * reactive [MutableStateFlow] streams for UI consumption.
+ *
+ * @property context The application or activity context used to establish connection with the Car service.
+ */
 class CarHvacManager(private val context: Context) {
 
     private var car: Car? = null
     private var carPropertyManager: CarPropertyManager? = null
     private var uxRestrictionsManager: CarUxRestrictionsManager? = null
 
-    // Hardware min/max bounds (loaded dynamically from VHAL)
+    // Hardware min/max bounds (loaded dynamically from VHAL configuration)
     var minDriverTemp: Float = 16.0f
         private set
     var maxDriverTemp: Float = 28.0f
@@ -47,12 +56,12 @@ class CarHvacManager(private val context: Context) {
     var maxSteeringWheelHeat: Int = 3
         private set
 
-    // Active Area IDs detected from VHAL config
+    // Active Area IDs detected dynamically from VHAL configuration
     private var passengerAreaId: Int = VehicleAreaSeat.SEAT_ROW_1_RIGHT
     private var fanAreaId: Int = VehicleAreaSeat.SEAT_ROW_1_LEFT
     private var globalHvacAreaId: Int = VehicleAreaSeat.SEAT_ROW_1_LEFT
 
-    // --- Existing Climate StateFlows (Temperatures always stored internally in Celsius) ---
+    // --- Climate StateFlows (Internal temperature values are always stored in Celsius) ---
     private val _driverTemp = MutableStateFlow(22.0f)
     val driverTemp = _driverTemp.asStateFlow()
 
@@ -62,14 +71,14 @@ class CarHvacManager(private val context: Context) {
     private val _fanSpeed = MutableStateFlow(1)
     val fanSpeed = _fanSpeed.asStateFlow()
 
-    // Seat Heating/Cooling (-3 to +3)
+    // Seat Heating/Cooling levels (-3 to +3)
     private val _driverSeatTemp = MutableStateFlow(0)
     val driverSeatTemp = _driverSeatTemp.asStateFlow()
 
     private val _passengerSeatTemp = MutableStateFlow(0)
     val passengerSeatTemp = _passengerSeatTemp.asStateFlow()
 
-    // Airflow Direction Bitmask (FACE, FLOOR, DEFROST)
+    // Airflow Direction Bitmask (FACE, FLOOR, DEFROST combinations)
     private val _fanDirection = MutableStateFlow(VehicleHvacFanDirection.FACE)
     val fanDirection = _fanDirection.asStateFlow()
 
@@ -93,11 +102,11 @@ class CarHvacManager(private val context: Context) {
     private val _isFahrenheit = MutableStateFlow(false)
     val isFahrenheit = _isFahrenheit.asStateFlow()
 
-    // Driving Safety State
+    // Driving Safety State (Distraction Optimization)
     private val _isDistractionOptimizedRequired = MutableStateFlow(false)
     val isDistractionOptimizedRequired = _isDistractionOptimizedRequired.asStateFlow()
 
-    // --- Added Remaining HVAC & Vehicle StateFlows ---
+    // --- Additional HVAC & Vehicle StateFlows ---
     private val _isHvacPowerOn = MutableStateFlow(true)
     val isHvacPowerOn = _isHvacPowerOn.asStateFlow()
 
@@ -137,9 +146,10 @@ class CarHvacManager(private val context: Context) {
     private val _isParked = MutableStateFlow(true)
     val isParked = _isParked.asStateFlow()
 
-    // =========================================================================
-    // REAL-TIME LISTENER FOR ALL SUBSCRIBED VHAL PROPERTIES
-    // =========================================================================
+    /**
+     * Real-time callback listener receiving change events from the Vehicle Hardware Abstraction Layer (VHAL).
+     * Updates corresponding [StateFlow] properties whenever a subscribed vehicle property value changes.
+     */
     private val propertyCallback = object : CarPropertyManager.CarPropertyEventCallback {
         override fun onChangeEvent(value: CarPropertyValue<*>?) {
             when (value?.propertyId) {
@@ -262,7 +272,8 @@ class CarHvacManager(private val context: Context) {
     }
 
     /**
-     * Lifecycle-resilient connection: automatically re-binds if CarService restarts
+     * Establishes a lifecycle-resilient connection to the Android Car Service.
+     * Automatically binds managers, loads hardware bounds, syncs initial state, and registers sensors upon connection.
      */
     fun connect() {
         car = Car.createCar(context, null, Car.CAR_WAIT_TIMEOUT_WAIT_FOREVER) { carInstance, isReady ->
@@ -283,6 +294,9 @@ class CarHvacManager(private val context: Context) {
         }
     }
 
+    /**
+     * Queries VHAL configuration for supported properties and determines min/max operating limits and zone Area IDs.
+     */
     private fun initHardwareConfig() {
         val manager = carPropertyManager ?: return
 
@@ -326,9 +340,10 @@ class CarHvacManager(private val context: Context) {
         }
     }
 
-    // =========================================================================
-    // GET ALL INITIAL PROPERTIES (Safe individual reads so one missing prop won't block others)
-    // =========================================================================
+    /**
+     * Synchronizes initial HVAC and vehicle states from VHAL using safe individual reads
+     * so that a missing property on specific vehicle trims will not block other reads.
+     */
     fun syncInitialState() {
         val manager = carPropertyManager ?: return
 
@@ -366,9 +381,9 @@ class CarHvacManager(private val context: Context) {
         }
     }
 
-    // =========================================================================
-    // SUBSCRIBE TO SINGLE OR MULTIPLE PROPERTIES
-    // =========================================================================
+    /**
+     * Subscribes to all relevant VHAL property change events for real-time updates.
+     */
     private fun registerSensors() {
         val allProperties = listOf(
             VehiclePropertyIds.HVAC_POWER_ON,
@@ -395,6 +410,9 @@ class CarHvacManager(private val context: Context) {
         subscribeProperties(allProperties)
     }
 
+    /**
+     * Subscribes to a single VHAL property ID.
+     */
     fun subscribeProperty(propId: Int, rate: Float = CarPropertyManager.SENSOR_RATE_ONCHANGE): Boolean {
         val manager = carPropertyManager ?: return false
         return runCatching {
@@ -404,10 +422,16 @@ class CarHvacManager(private val context: Context) {
         }.getOrDefault(false)
     }
 
+    /**
+     * Subscribes to a list of VHAL property IDs.
+     */
     fun subscribeProperties(propIds: List<Int>, rate: Float = CarPropertyManager.SENSOR_RATE_ONCHANGE) {
         propIds.forEach { propId -> subscribeProperty(propId, rate) }
     }
 
+    /**
+     * Unsubscribes from a VHAL property.
+     */
     fun unsubscribeProperty(propId: Int) {
         carPropertyManager?.unregisterCallback(propertyCallback, propId)
     }
@@ -415,6 +439,7 @@ class CarHvacManager(private val context: Context) {
     // =========================================================================
     // GENERIC GET / SET / CAPABILITY HELPERS
     // =========================================================================
+
     fun isPropertySupported(propId: Int): Boolean =
         carPropertyManager?.getCarPropertyConfig(propId) != null
 
@@ -440,8 +465,10 @@ class CarHvacManager(private val context: Context) {
     }
 
     // =========================================================================
-    // EXISTING CLAMPED VHAL WRITE METHODS (Preserved)
+    // CLAMPED VHAL WRITE METHODS
     // =========================================================================
+
+    /** Sets driver zone target temperature in Celsius, respecting safety bounds and dual-zone state. */
     fun setDriverTemperature(tempCelsius: Float) {
         val safeTemp = tempCelsius.coerceIn(minDriverTemp, maxDriverTemp)
         carPropertyManager?.setFloatProperty(VehiclePropertyIds.HVAC_TEMPERATURE_SET, VehicleAreaSeat.SEAT_ROW_1_LEFT, safeTemp)
@@ -450,77 +477,91 @@ class CarHvacManager(private val context: Context) {
         }
     }
 
+    /** Sets passenger zone target temperature in Celsius, respecting safety bounds. */
     fun setPassengerTemperature(tempCelsius: Float) {
         val safeTemp = tempCelsius.coerceIn(minPassengerTemp, maxPassengerTemp)
         carPropertyManager?.setFloatProperty(VehiclePropertyIds.HVAC_TEMPERATURE_SET, passengerAreaId, safeTemp)
     }
 
+    /** Sets blower fan speed level, clamped to vehicle limits. */
     fun setFanSpeed(speed: Int) {
         val safeSpeed = speed.coerceIn(minFanSpeed, maxFanSpeed)
         carPropertyManager?.setIntProperty(VehiclePropertyIds.HVAC_FAN_SPEED, fanAreaId, safeSpeed)
     }
 
+    /** Sets driver seat heating/cooling level (-3 to +3). */
     fun setDriverSeatTemp(level: Int) {
         val safeLevel = level.coerceIn(minSeatTemp, maxSeatTemp)
         carPropertyManager?.setIntProperty(VehiclePropertyIds.HVAC_SEAT_TEMPERATURE, VehicleAreaSeat.SEAT_ROW_1_LEFT, safeLevel)
     }
 
+    /** Sets passenger seat heating/cooling level (-3 to +3). */
     fun setPassengerSeatTemp(level: Int) {
         val safeLevel = level.coerceIn(minSeatTemp, maxSeatTemp)
         carPropertyManager?.setIntProperty(VehiclePropertyIds.HVAC_SEAT_TEMPERATURE, passengerAreaId, safeLevel)
     }
 
+    /** Sets airflow direction bitmask (Face, Floor, Defrost). */
     fun setFanDirection(directionMask: Int) {
         carPropertyManager?.setIntProperty(VehiclePropertyIds.HVAC_FAN_DIRECTION, fanAreaId, directionMask)
     }
 
+    /** Toggles compressor A/C state. */
     fun setAcOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_AC_ON, globalHvacAreaId, enabled)
     }
 
+    /** Toggles automatic climate control state. */
     fun setAutoOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_AUTO_ON, globalHvacAreaId, enabled)
     }
 
+    /** Toggles air recirculation mode. */
     fun setRecircOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_RECIRC_ON, globalHvacAreaId, enabled)
     }
 
+    /** Toggles dual-zone temperature synchronization. */
     fun setDualZoneOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_DUAL_ON, globalHvacAreaId, enabled)
     }
 
+    /** Toggles front windshield defroster. */
     fun setFrontDefrostOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_DEFROSTER, VehicleAreaWindow.WINDOW_FRONT_WINDSHIELD, enabled)
     }
 
-    // =========================================================================
-    // NEW CLAMPED VHAL WRITE METHODS FOR REMAINING HVAC PROPERTIES
-    // =========================================================================
+    /** Toggles overall system HVAC power. */
     fun setHvacPowerOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_POWER_ON, globalHvacAreaId, enabled)
     }
 
+    /** Toggles Max A/C mode. */
     fun setMaxAcOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_MAX_AC_ON, globalHvacAreaId, enabled)
     }
 
+    /** Toggles Max Defrost mode. */
     fun setMaxDefrostOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_MAX_DEFROST_ON, globalHvacAreaId, enabled)
     }
 
+    /** Toggles rear windshield defroster. */
     fun setRearDefrostOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_DEFROSTER, VehicleAreaWindow.WINDOW_REAR_WINDSHIELD, enabled)
     }
 
+    /** Toggles automatic air recirculation. */
     fun setAutoRecircOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_AUTO_RECIRC_ON, globalHvacAreaId, enabled)
     }
 
+    /** Toggles electric defroster. */
     fun setElectricDefrosterOn(enabled: Boolean) {
         carPropertyManager?.setBooleanProperty(VehiclePropertyIds.HVAC_ELECTRIC_DEFROSTER_ON, VehicleAreaWindow.WINDOW_FRONT_WINDSHIELD, enabled)
     }
 
+    /** Toggles side mirror heating. */
     fun setSideMirrorHeatOn(enabled: Boolean) {
         val areaId = carPropertyManager?.getCarPropertyConfig(VehiclePropertyIds.HVAC_SIDE_MIRROR_HEAT)
             ?.areaIds?.firstOrNull() ?: 0
@@ -531,16 +572,19 @@ class CarHvacManager(private val context: Context) {
         }
     }
 
+    /** Sets driver seat ventilation level. */
     fun setDriverSeatVentilation(level: Int) {
         val safeLevel = level.coerceIn(minSeatVentilation, maxSeatVentilation)
         carPropertyManager?.setIntProperty(VehiclePropertyIds.HVAC_SEAT_VENTILATION, VehicleAreaSeat.SEAT_ROW_1_LEFT, safeLevel)
     }
 
+    /** Sets passenger seat ventilation level. */
     fun setPassengerSeatVentilation(level: Int) {
         val safeLevel = level.coerceIn(minSeatVentilation, maxSeatVentilation)
         carPropertyManager?.setIntProperty(VehiclePropertyIds.HVAC_SEAT_VENTILATION, passengerAreaId, safeLevel)
     }
 
+    /** Sets steering wheel heating level. */
     fun setSteeringWheelHeat(level: Int) {
         val safeLevel = level.coerceIn(minSteeringWheelHeat, maxSteeringWheelHeat)
         val areaId = carPropertyManager?.getCarPropertyConfig(VehiclePropertyIds.HVAC_STEERING_WHEEL_HEAT)
@@ -548,6 +592,7 @@ class CarHvacManager(private val context: Context) {
         carPropertyManager?.setIntProperty(VehiclePropertyIds.HVAC_STEERING_WHEEL_HEAT, areaId, safeLevel)
     }
 
+    /** Switches climate display temperature units between Celsius and Fahrenheit. */
     fun setTemperatureDisplayUnits(useFahrenheit: Boolean) {
         val unit = if (useFahrenheit) VehicleUnit.FAHRENHEIT else VehicleUnit.CELSIUS
         carPropertyManager?.setIntProperty(VehiclePropertyIds.HVAC_TEMPERATURE_DISPLAY_UNITS, 0, unit)
@@ -556,6 +601,10 @@ class CarHvacManager(private val context: Context) {
     // =========================================================================
     // DRIVING VS. PARKING STATE HANDLING
     // =========================================================================
+
+    /**
+     * Registers UX restriction listener to manage distraction optimization requirements while driving.
+     */
     private fun registerUxRestrictions() {
         val uxManager = uxRestrictionsManager ?: return
         _isDistractionOptimizedRequired.value = uxManager.currentCarUxRestrictions?.isRequiresDistractionOptimization ?: false
@@ -565,9 +614,12 @@ class CarHvacManager(private val context: Context) {
         }
     }
 
+    /**
+     * Enforces safety rules when driving state changes (e.g. limiting high fan noise when shifted out of Park).
+     */
     private fun onDrivingStateChanged(isParked: Boolean) {
         if (!isParked) {
-            // Vehicle shifted to Drive/Reverse: cap high fan noise while driving
+            // Vehicle shifted to Drive/Reverse: cap high blower fan noise for safety and comfort
             if (_fanSpeed.value > 5) {
                 setFanSpeed(5)
             }
@@ -577,7 +629,9 @@ class CarHvacManager(private val context: Context) {
         }
     }
 
-    // Helper to format Celsius into °F if vehicle unit is Fahrenheit
+    /**
+     * Formats a temperature in Celsius into either Celsius or Fahrenheit string based on active vehicle display units.
+     */
     fun formatTemperature(tempCelsius: Float): String {
         return if (_isFahrenheit.value) {
             val fahrenheit = (tempCelsius * 9f / 5f) + 32f
@@ -587,6 +641,9 @@ class CarHvacManager(private val context: Context) {
         }
     }
 
+    /**
+     * Cleans up VHAL callbacks and disconnects from Car service.
+     */
     fun disconnect() {
         carPropertyManager?.unregisterCallback(propertyCallback)
         uxRestrictionsManager?.unregisterListener()
